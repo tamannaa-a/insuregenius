@@ -1,59 +1,45 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, Form
 from fastapi.middleware.cors import CORSMiddleware
 import joblib
 import numpy as np
-import pandas as pd
 
 app = FastAPI()
 
-# CORS (so frontend can connect)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"]
 )
 
-# Load Renewal Prediction Model
 try:
     renewal_model = joblib.load("models/renewal_model.pkl")
 except:
     renewal_model = None
 
 
-# ------------------------- POLICY SUMMARY -------------------------
+# ================= POLICY SUMMARY =================
 @app.post("/policy/summary")
 async def policy_summary(text: str = Form(...)):
-    """
-    Heuristic summarization (LLM-ready)
-    """
-    coverage = "Coverage details not found."
-    exclusions = "Exclusions not found."
-    limits = "Limits not found."
-
     t = text.lower()
 
-    if "cover" in t:
-        coverage = text[text.lower().find("cover"): text.lower().find("cover") + 200]
-    if "exclude" in t:
-        exclusions = text[text.lower().find("exclude"): text.lower().find("exclude") + 200]
-    if "limit" in t or "sum insured" in t:
-        limits = text[text.lower().find("limit"): text.lower().find("limit") + 200]
+    coverage = text[text.lower().find("cover"): text.lower().find("cover") + 200] if "cover" in t else "Coverage not found"
+    exclusions = text[text.lower().find("exclude"): text.lower().find("exclude") + 200] if "exclude" in t else "Exclusions not found"
+    limits = text[text.lower().find("limit"): text.lower().find("limit") + 200] if "limit" in t else "Limits not found"
 
-    summary = f"""
-    POLICY SUMMARY:
-    • Coverage: {coverage.strip()}
-    • Exclusions: {exclusions.strip()}
-    • Limits: {limits.strip()}
+    return {
+        "summary": f"""
+Policy Summary:
+• Coverage: {coverage}
+• Exclusions: {exclusions}
+• Limits: {limits}
 
-    NOTE: This is a heuristic summary. In a production system, this route
-    would send your policy text to a fine-tuned LLM such as GPT or Llama.
-    """
-
-    return {"summary": summary}
+(LLM-ready endpoint — plug GPT here)
+"""
+    }
 
 
-# ------------------------- CLAIM NORMALIZER -------------------------
+# ================= CLAIM NORMALIZATION =================
 @app.post("/claims/normalize")
 async def normalize_claim(text: str = Form(...)):
     lower = text.lower()
@@ -62,35 +48,33 @@ async def normalize_claim(text: str = Form(...)):
     severity = "Medium"
     asset = "Unknown"
 
-    if "car" in lower or "vehicle" in lower:
+    if "car" in lower:
         asset = "Car"
     if "house" in lower:
-        asset = "Home"
-    if "fire" in lower:
-        loss_type = "Fire Damage"
+        asset = "House"
     if "flood" in lower:
         loss_type = "Flood Damage"
+    if "fire" in lower:
+        loss_type = "Fire Damage"
 
     if "minor" in lower:
         severity = "Low"
     if "severe" in lower or "total" in lower:
         severity = "High"
 
-    structured = {
+    return {
         "lossType": loss_type,
         "severity": severity,
         "asset": asset,
-        "summary": f"{loss_type}, Severity {severity}, Asset {asset}"
+        "summary": f"{loss_type} | Severity {severity} | Asset {asset}"
     }
 
-    return structured
 
-
-# ------------------------- FRAUD DETECTION -------------------------
+# ================= FRAUD DETECTOR =================
 @app.post("/fraud/check")
 async def fraud_check(text: str = Form(...), amount: float = Form(...)):
-
     lower = text.lower()
+
     risk = "Low"
     reasons = []
 
@@ -98,79 +82,71 @@ async def fraud_check(text: str = Form(...), amount: float = Form(...)):
         risk = "Medium"
         reasons.append("High claim amount")
 
-    if "urgent" in lower or "immediate" in lower:
+    if "urgent" in lower:
         risk = "Medium"
-        reasons.append("Pressure language used")
+        reasons.append("Pressure wording")
 
-    if "again" in lower or "similar claim" in lower:
+    if "again" in lower:
         risk = "High"
         reasons.append("Repeat claim pattern")
 
-    if "no documents" in lower or "missing photos" in lower:
-        risk = "High"
-        reasons.append("Lack of documentation")
-
-    if risk == "Low":
-        reasons.append("No strong fraud patterns detected")
+    if len(reasons) == 0:
+        reasons.append("No fraud indicators detected")
 
     return {"risk": risk, "reasons": reasons}
 
 
-# ------------------------- DOCUMENT CLASSIFIER -------------------------
+# ================= DOCUMENT CLASSIFICATION =================
 @app.post("/docs/classify")
 async def classify_doc(text: str = Form(...)):
-
     lower = text.lower()
 
-    if "invoice" in lower or "estimate" in lower:
+    if "invoice" in lower:
         return {"type": "Repair Invoice"}
-
-    if "inspection" in lower or "survey" in lower:
+    if "inspection" in lower:
         return {"type": "Inspection Report"}
-
-    if "claim form" in lower or "policy number" in lower:
+    if "claim" in lower:
         return {"type": "Claim Form"}
 
     return {"type": "Other"}
 
 
-# ------------------------- RENEWAL PREDICTION -------------------------
+# ================= RENEWAL PREDICTION =================
 @app.post("/renewal/predict")
-async def renewal_predict(premium: float = Form(...), claims: int = Form(...), late_payments: int = Form(...)):
+async def predict_renewal(premium: float = Form(...), claims: int = Form(...), late: int = Form(...)):
 
     if renewal_model is None:
-        probability = 0.75
-    else:
-        x = np.array([[premium, claims, late_payments]])
-        probability = renewal_model.predict_proba(x)[0][1]
+        return {"probability": 0.78}
 
-    return {"probability": float(probability)}
+    x = np.array([[premium, claims, late]])
+    prob = renewal_model.predict_proba(x)[0][1]
+
+    return {"probability": float(prob)}
 
 
-# ------------------------- ACTUARIAL CODE ASSISTANT -------------------------
+# ================= ACTUARIAL CODE GENERATOR =================
 @app.post("/code/generate")
 async def generate_code(prompt: str = Form(...)):
-    code = f"""
-# Auto-generated Actuarial Script based on prompt:
-# "{prompt}"
+
+    python_code = f"""
+# Auto-generated script
+# Prompt: {prompt}
 
 import pandas as pd
 import matplotlib.pyplot as plt
 
 df = pd.DataFrame({{
-    "year": [2019, 2020, 2021, 2022],
-    "premium": [1000000, 1100000, 1200000, 1300000],
-    "losses": [600000, 650000, 700000, 750000]
+ 'year': [2019,2020,2021,2022],
+ 'premium':[1000000,1100000,1200000,1300000],
+ 'losses':[600000,650000,700000,750000]
 }})
 
-df["loss_ratio"] = df["losses"] / df["premium"]
-
+df['loss_ratio'] = df['losses']/df['premium']
 print(df)
 
-plt.plot(df["year"], df["loss_ratio"], marker='o')
+plt.plot(df['year'], df['loss_ratio'], marker='o')
 plt.title("Loss Ratio Trend")
-plt.ylabel("Loss Ratio")
 plt.show()
-"""
+    """
 
-    return {"code": code}
+    return {"code": python_code}
